@@ -71,7 +71,7 @@ class AttentionLayer(MessagePassing):
                 r: Optional[torch.Tensor],
                 edge_index: torch.Tensor) -> torch.Tensor:
         if isinstance(x, torch.Tensor):
-            x_src = x_dst = self.attn_prenorm_x_src(x)
+            x_src = x_dst = self.attn_prenorm_x_src(x) # 单个张量 -> 调用Self-attn；
         else:
             x_src, x_dst = x
             x_src = self.attn_prenorm_x_src(x_src)

@@ -165,39 +165,64 @@ class QCNet(pl.LightningModule):
             data['agent']['av_index'] += data['agent']['ptr'][:-1]
         reg_mask = data['agent']['predict_mask'][:, self.num_historical_steps:]
         cls_mask = data['agent']['predict_mask'][:, -1]
+        
+        # 预测结果 
+        """ 
+        return {
+            'loc_propose_pos': loc_propose_pos,
+            'scale_propose_pos': scale_propose_pos,
+            'loc_propose_head': loc_propose_head,
+            'conc_propose_head': conc_propose_head,
+            'loc_refine_pos': loc_refine_pos,
+            'scale_refine_pos': scale_refine_pos,
+            'loc_refine_head': loc_refine_head,
+            'conc_refine_head': conc_refine_head,
+            'pi': pi,
+        } 
+        """
         pred = self(data)
         if self.output_head:
             traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
                                       pred['loc_propose_head'],
                                       pred['scale_propose_pos'][..., :self.output_dim],
-                                      pred['conc_propose_head']], dim=-1)
+                                      pred['conc_propose_head']], dim=-1) #(B*A, T, 6)
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['loc_refine_head'],
                                      pred['scale_refine_pos'][..., :self.output_dim],
-                                     pred['conc_refine_head']], dim=-1)
+                                     pred['conc_refine_head']], dim=-1) # (B*A, T, 6)
         else:
             traj_propose = torch.cat([pred['loc_propose_pos'][..., :self.output_dim],
                                       pred['scale_propose_pos'][..., :self.output_dim]], dim=-1)
             traj_refine = torch.cat([pred['loc_refine_pos'][..., :self.output_dim],
                                      pred['scale_refine_pos'][..., :self.output_dim]], dim=-1)
         pi = pred['pi']
-        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1)
+        gt = torch.cat([data['agent']['target'][..., :self.output_dim], data['agent']['target'][..., -1:]], dim=-1) # GT
+        
         l2_norm = (torch.norm(traj_propose[..., :self.output_dim] -
                               gt[..., :self.output_dim].unsqueeze(1), p=2, dim=-1) * reg_mask.unsqueeze(1)).sum(dim=-1)
         best_mode = l2_norm.argmin(dim=-1)
-        traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode]
-        traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode]
+        traj_propose_best = traj_propose[torch.arange(traj_propose.size(0)), best_mode] # Top1 
+        traj_refine_best = traj_refine[torch.arange(traj_refine.size(0)), best_mode] # Top1  
+        
+        ## 回归主Loss，基于Top1的预测轨迹
         reg_loss_propose = self.reg_loss(traj_propose_best,
                                          gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_propose = reg_loss_propose.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-        reg_loss_propose = reg_loss_propose.mean()
+        reg_loss_propose = reg_loss_propose.mean() 
+        
+        ## 回归辅助Loss， 基于Top1的Refine轨迹 
         reg_loss_refine = self.reg_loss(traj_refine_best,
                                         gt[..., :self.output_dim + self.output_head]).sum(dim=-1) * reg_mask
         reg_loss_refine = reg_loss_refine.sum(dim=0) / reg_mask.sum(dim=0).clamp_(min=1)
-        reg_loss_refine = reg_loss_refine.mean()
+        reg_loss_refine = reg_loss_refine.mean() 
+        
+        ## 分类Loss
+        # 输入1 --- refine的B,A,T (置信度分数? )
         cls_loss = self.cls_loss(pred=traj_refine[:, :, -1:].detach(),
                                  target=gt[:, -1:, :self.output_dim + self.output_head],
-                                 prob=pi,
+                                 prob=pi, # 模态分数: 
+                                                # 1. For SingleAgen， 模态分数为K个预测模态的置信度分数 
+                                                # 2. For MultiAgen,  模态分数为K个预测1对多的交互模态的置信度分数
                                  mask=reg_mask[:, -1:]) * cls_mask
         cls_loss = cls_loss.sum() / cls_mask.sum().clamp_(min=1)
         self.log('train_reg_loss_propose', reg_loss_propose, prog_bar=False, on_step=True, on_epoch=True, batch_size=1)

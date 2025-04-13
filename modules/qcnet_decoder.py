@@ -213,7 +213,9 @@ class QCNetDecoder(nn.Module):
         locs_propose_pos: List[Optional[torch.Tensor]] = [None] * self.num_recurrent_steps
         scales_propose_pos: List[Optional[torch.Tensor]] = [None] * self.num_recurrent_steps
         locs_propose_head: List[Optional[torch.Tensor]] = [None] * self.num_recurrent_steps
-        concs_propose_head: List[Optional[torch.Tensor]] = [None] * self.num_recurrent_steps
+        concs_propose_head: List[Optional[torch.Tensor]] = [None] * self.num_recurrent_steps 
+        
+        ## K-step ，每次预测ts(对于argov2,6s预测的最优recurrent是1s/step)
         for t in range(self.num_recurrent_steps):
             for i in range(self.num_layers):
                 m = m.reshape(-1, self.hidden_dim)
@@ -277,6 +279,20 @@ class QCNetDecoder(nn.Module):
                                                            self.num_future_steps, 1))
         pi = self.to_pi(m).squeeze(-1)
 
+        
+        """关于decoder的输出
+
+        Returns:
+            loc_propose_pos:预测位置(B*A,K,T,2)
+            scale_propose_pos:预测的缩放因子（缩放提议），表示未来时间步的缩放信息。它是通过对提议缩放的累积和计算得到的，形状为(B*A,K,T,2) 
+            loc_propose_head:预测位置（提议头部），表示未来时间步的旋转信息。它是通过对提议位置的累积和计算得到的，形状为(B*A,K,T,1)
+            conc_propose_head:预测位置（提议头部），表示未来时间步的置信度信息。它是通过对提议位置的累积和计算得到的，形状为(B*A,K,T,1)
+            loc_refine_pos:预测位置（细化位置），表示未来时间步的旋转信息。它是通过对提议位置的累积和计算得到的，形状为(B*A,K,T,1)
+            scale_refine_pos:预测位置（细化位置），表示未来时间步的缩放信息。它是通过对提议位置的累积和计算得到的，形状为(B*A,K,T,2)
+            loc_refine_head:预测位置（细化头部），表示未来时间步的旋转信息。它是通过对提议位置的累积和计算得到的，形状为(B*A,K,T,1)
+            -----------------------------------------------------------------------------------
+            pi:预测的概率分布（通常用于生成模型），表示每个模式的概率, 形状为(B*A,K)
+        """
         return {
             'loc_propose_pos': loc_propose_pos,
             'scale_propose_pos': scale_propose_pos,
@@ -287,4 +303,4 @@ class QCNetDecoder(nn.Module):
             'loc_refine_head': loc_refine_head,
             'conc_refine_head': conc_refine_head,
             'pi': pi,
-        }
+        } 

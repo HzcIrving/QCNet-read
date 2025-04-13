@@ -99,7 +99,7 @@ class QCNetAgentEncoder(nn.Module):
                                      pos_a[:, 1:] - pos_a[:, :-1]], dim=1)
         head_a = data['agent']['heading'][:, :self.num_historical_steps].contiguous()
         head_vector_a = torch.stack([head_a.cos(), head_a.sin()], dim=-1)
-        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous()
+        pos_pl = data['map_polygon']['position'][:, :self.input_dim].contiguous() # PL Means Polygon 
         orient_pl = data['map_polygon']['orientation'].contiguous()
         if self.dataset == 'argoverse_v2':
             vel = data['agent']['velocity'][:, :self.num_historical_steps, :self.input_dim].contiguous()
@@ -175,14 +175,15 @@ class QCNetAgentEncoder(nn.Module):
              rel_head_a2a], dim=-1)
         r_a2a = self.r_a2a_emb(continuous_inputs=r_a2a, categorical_embs=None)
 
+        # a2t 
         for i in range(self.num_layers):
-            x_a = x_a.reshape(-1, self.hidden_dim)
-            x_a = self.t_attn_layers[i](x_a, r_t, edge_index_t)
-            x_a = x_a.reshape(-1, self.num_historical_steps,
+            x_a = x_a.reshape(-1, self.hidden_dim) # (B*1, D)
+            x_a = self.t_attn_layers[i](x_a, r_t, edge_index_t) # (B, 1, D) -> T维 
+            x_a = x_a.reshape(-1, self.num_historical_steps, # (B, T, D) 
                               self.hidden_dim).transpose(0, 1).reshape(-1, self.hidden_dim)
             x_a = self.pl2a_attn_layers[i]((map_enc['x_pl'].transpose(0, 1).reshape(-1, self.hidden_dim), x_a), r_pl2a,
                                            edge_index_pl2a)
             x_a = self.a2a_attn_layers[i](x_a, r_a2a, edge_index_a2a)
-            x_a = x_a.reshape(self.num_historical_steps, -1, self.hidden_dim).transpose(0, 1)
+            x_a = x_a.reshape(self.num_historical_steps, -1, self.hidden_dim).transpose(0, 1) # B*T, A, D ??? 
 
         return {'x_a': x_a}
